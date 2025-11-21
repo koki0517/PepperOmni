@@ -8,6 +8,8 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(dynamixel_sdk REQUIRED)
+find_package(geometry_msgs REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
@@ -18,10 +20,14 @@ target_include_directories(dxl_omni PUBLIC
   $<INSTALL_INTERFACE:include>)
 target_compile_features(dxl_omni PUBLIC c_std_99 cxx_std_17)  # Require C99 and C++17
 
-ament_target_dependencies(dxl_omni rclcpp)
+ament_target_dependencies(dxl_omni rclcpp dynamixel_sdk geometry_msgs)
 
 install(TARGETS dxl_omni
   DESTINATION lib/${PROJECT_NAME})
+
+# Install launch files so they are available under share/<package>/launch
+install(DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
