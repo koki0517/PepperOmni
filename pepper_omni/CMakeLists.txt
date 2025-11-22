@@ -10,6 +10,9 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(dynamixel_sdk REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(uec_utils REQUIRED)
+find_package(sensor_msgs REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
@@ -20,7 +23,17 @@ target_include_directories(dxl_omni PUBLIC
   $<INSTALL_INTERFACE:include>)
 target_compile_features(dxl_omni PUBLIC c_std_99 cxx_std_17)  # Require C99 and C++17
 
-ament_target_dependencies(dxl_omni rclcpp dynamixel_sdk geometry_msgs)
+ament_target_dependencies(dxl_omni rclcpp dynamixel_sdk geometry_msgs std_msgs uec_utils)
+
+add_executable(joy_pub src/joy_pub.cpp)
+target_include_directories(joy_pub PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+target_compile_features(joy_pub PUBLIC c_std_99 cxx_std_17)
+ament_target_dependencies(joy_pub rclcpp geometry_msgs sensor_msgs std_msgs uec_utils)
+
+install(TARGETS joy_pub
+  DESTINATION lib/${PROJECT_NAME})
 
 install(TARGETS dxl_omni
   DESTINATION lib/${PROJECT_NAME})

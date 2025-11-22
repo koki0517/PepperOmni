@@ -55,6 +55,24 @@ def generate_launch_description():
     ],
   )
 
+  joy_pub = Node(
+    package="pepper_omni",
+    executable="joy_pub",
+    name="joy_pub",
+    output="screen",
+  )
+
+  joy_linux = Node(
+    package="joy",
+    executable="joy_node",
+    name="joy",
+    output="screen",
+    parameters=[],
+  )
+
   return LaunchDescription([
-    usb2canfd,
+    # usb2canfd,
+    pepper_omni,
+    joy_pub,
+    joy_linux,
     ])

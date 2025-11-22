@@ -3,7 +3,9 @@
 #include <string>
 #include "dynamixel_sdk/dynamixel_sdk.h"
 #include "geometry_msgs/msg/twist.hpp"
+#include "std_msgs/msg/float64.hpp"
 #include <rclcpp/rclcpp.hpp>
+#include <cmath>
 
 using namespace std::chrono_literals;
 
@@ -12,15 +14,32 @@ namespace PEPPER_OMNI {
 // forward declarations
 int32_t read_present_position(uint8_t dxl_id);
 
+// Control table (Protocol 1.0 / MX & RX legacy addresses)
+#define ADDR_TORQUE_ENABLE 24
+#define ADDR_GOAL_POSITION 30
+#define ADDR_MOVING_SPEED 32
+#define ADDR_PRESENT_POSITION 36
+
+// Dynamixel communication configuration
+#define PROTOCOL_VERSION 1.0
+#define BAUDRATE 115200
+#define DEVICE_NAME "/dev/ttyUSB0"
+
+// Forward declare shared Dynamixel SDK objects so class methods can use them
+extern dynamixel::PortHandler * portHandler;
+extern dynamixel::PacketHandler * packetHandler;
+extern uint8_t dxl_error;
+extern int dxl_comm_result;
+
 class DxlOmniNode : public rclcpp::Node
 {
 public:
   DxlOmniNode()
   : Node("dxl_omni")
   {
-    declare_parameter("id list", std::vector<int64_t>{1, 2, 3});
+    declare_parameter("id list", std::vector<int64_t>{1, 2, 3, 4});
     id_list_ = get_parameter("id list").as_integer_array();
-    declare_parameter("hz", 100); // default 100 Hz
+    declare_parameter("hz", 100.0); // default 100 Hz
     hz_ = this->get_parameter("hz").as_double();
     if (hz_ <= 0.0) {
       hz_ = 100;
@@ -30,12 +49,19 @@ public:
     cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
       "cmd_vel",
       rclcpp::QoS(rclcpp::KeepLast(10)),
-      std::bind(&DxlOmniNode::cmd_vel_callback, this, std::placeholders::_1)
+      std::bind(&DxlOmniNode::twist_cb, this, std::placeholders::_1)
+    );
+
+      // Subscribe to pepper_head (double)
+    pepper_head_sub_ = this->create_subscription<std_msgs::msg::Float64>(
+      "/pepper_head",
+      rclcpp::QoS(rclcpp::KeepLast(10)),
+      std::bind(&DxlOmniNode::pepper_head_cb, this, std::placeholders::_1)
     );
     
     // compute period from Hz and create timer
     auto period = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::duration<double>(1.0 / hz_));
-    timer_ = this->create_wall_timer(period, std::bind(&DxlOmniNode::timer_callback, this));
+    timer_ = this->create_wall_timer(period, std::bind(&DxlOmniNode::timer_cb, this));
 
     RCLCPP_INFO(this->get_logger(), "dxl_omni node started");
   }
@@ -45,9 +71,12 @@ private:
   std::vector<int64_t> id_list_;
   double hz_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
+  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr pepper_head_sub_;
+  double latest_pepper_head_ = 0.0;
+  double last_sent_pepper_head_ = 0.0;
 
-  // member callback for cmd_vel
-  void cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
+  // MARK: twist cb
+  void twist_cb(const geometry_msgs::msg::Twist::SharedPtr msg)
   {
     RCLCPP_INFO(this->get_logger(), "cmd_vel (member): linear=(%.3f, %.3f, %.3f) angular=(%.3f, %.3f, %.3f)",
       msg->linear.x, msg->linear.y, msg->linear.z,
@@ -63,17 +92,76 @@ private:
     if (pos == INT32_MIN) {
       RCLCPP_WARN(this->get_logger(), "read_servo_position: failed to read ID=%d", id);
     } else {
-      RCLCPP_INFO(this->get_logger(), "read_servo_position: ID=%d pos=%d", id, pos);
+      RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "read_servo_position: ID=%d pos=%d", id, pos);
     }
     return pos;
   }
 
-  // Read positions for all configured ids
-  void timer_callback()
+  // Send a velocity (moving speed) command to an arbitrary servo ID (wheel mode)
+  // speed_rad_s: desired angular speed in [rad/s]. Function converts to
+  // Dynamixel Protocol 1.0 Moving Speed register units for wheel mode.
+  // Wheel mode format: 0..1023 = magnitude (CCW), 1024..2047 = magnitude + direction(CW)
+  // NOTE: unit -> ~0.114 rpm per register unit for many MX/RX models.
+  bool send_velocity_command(uint8_t id, double speed_rad_s)
+  {
+    // Conversion constants
+    // approx. 0.114 [rpm] per register unit (Protocol 1.0, MX series doc)
+    constexpr double RPM_PER_UNIT = 0.114; // rpm / raw_unit
+    // convert rad/s -> register units: units = rad/s * (60/(2*pi)) / RPM_PER_UNIT
+    const double factor = 60.0 / (2.0 * M_PI * RPM_PER_UNIT);
+
+    double abs_units = std::round(std::abs(speed_rad_s) * factor);
+    // wheel-mode only: magnitude fits in 0..1023, direction in bit 10 (1024)
+    if (abs_units > 1023.0) abs_units = 1023.0;
+    uint16_t magnitude = static_cast<uint16_t>(abs_units);
+    uint16_t raw_speed = magnitude;
+    // Encode direction: per e-manual, 0..1023 => CCW, 1024..2047 => CW
+    if (speed_rad_s > 0.0) {
+      raw_speed |= 0x400; // set bit 10 to indicate CW
+    }
+
+    int result = PEPPER_OMNI::packetHandler->write2ByteTxRx(
+      PEPPER_OMNI::portHandler,
+      id,
+      ADDR_MOVING_SPEED,
+      raw_speed,
+      &PEPPER_OMNI::dxl_error
+    );
+
+    if (result != COMM_SUCCESS) {
+      RCLCPP_ERROR(this->get_logger(), "send_velocity_command: write failed ID=%d: %s", id, PEPPER_OMNI::packetHandler->getTxRxResult(result));
+      return false;
+    }
+    if (PEPPER_OMNI::dxl_error != 0) {
+      RCLCPP_ERROR(this->get_logger(), "send_velocity_command: servo error ID=%d: %s", id, PEPPER_OMNI::packetHandler->getRxPacketError(PEPPER_OMNI::dxl_error));
+      return false;
+    }
+
+    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "send_velocity_command: ID=%d speed=%.3frad/s -> raw=%u", id, speed_rad_s, raw_speed);
+    return true;
+  }
+
+  // MARK: timer cb
+  void timer_cb()
   {
     for (auto id64 : id_list_) {
       uint8_t id = static_cast<uint8_t>(id64);
       read_servo_position(id);
+    }
+  }
+
+  // MARK: head cb
+  void pepper_head_cb(const std_msgs::msg::Float64::SharedPtr msg)
+  {
+    // store and log the received value
+    latest_pepper_head_ = msg->data;
+    RCLCPP_INFO(this->get_logger(), "pepper_head received: %.3f", latest_pepper_head_);
+    // Only send if value changed significantly to avoid jitter
+    const double eps = 1e-3;
+    if (std::abs(latest_pepper_head_ - last_sent_pepper_head_) > eps) {
+      bool ok = send_velocity_command(4, latest_pepper_head_);
+      if (ok) last_sent_pepper_head_ = latest_pepper_head_;
+      else RCLCPP_WARN(this->get_logger(), "send_velocity_command failed for head value %.3f", latest_pepper_head_);
     }
   }
 };
@@ -86,18 +174,10 @@ namespace PEPPER_OMNI {
 dynamixel::PortHandler * portHandler = nullptr;
 dynamixel::PacketHandler * packetHandler = nullptr;
 
-// Control table (Protocol 1.0 / MX & RX legacy addresses)
-#define ADDR_TORQUE_ENABLE 24
-#define ADDR_GOAL_POSITION 30
-#define ADDR_PRESENT_POSITION 36
-
-#define PROTOCOL_VERSION 1.0
-#define BAUDRATE 1000000
-#define DEVICE_NAME "/dev/ttyUSB0"
-
 uint8_t dxl_error = 0;
 int dxl_comm_result = COMM_TX_FAIL;
 
+// MARK: init dxl
 void setup_dynamixel(uint8_t dxl_id)
 {
   // For Protocol 1.0 (MX, RX legacy), simply enable torque
@@ -118,7 +198,9 @@ void setup_dynamixel(uint8_t dxl_id)
   }
 }
 
-// Read present position (Protocol 1.0: 2-byte position for MX/RX/AX)
+/* MARK: read dxl pos
+  Read present position (Protocol 1.0: 2-byte position for MX/RX/AX)
+ */
 int32_t read_present_position(uint8_t dxl_id)
 {
   uint16_t present_position = 0;
@@ -142,9 +224,10 @@ int32_t read_present_position(uint8_t dxl_id)
 
   return static_cast<int32_t>(present_position);
 }
+
 } // namespace PEPPER_OMNI
 
-
+// MARK: main
 int main(int argc, char ** argv)
 {
   // Initialize Dynamixel SDK port and packet handlers (Protocol 1.0)
