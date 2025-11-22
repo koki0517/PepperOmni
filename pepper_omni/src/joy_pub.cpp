@@ -31,8 +31,12 @@ private:
 	void joy_callback(const sensor_msgs::msg::Joy::SharedPtr msg)
 	{
 		geometry_msgs::msg::Twist tw;
-		// leave all fields zero for cmd_vel
-		// pub_->publish(tw);
+		float x = -msg->axes[0];
+		float y =  msg->axes[1];
+		tw.linear.x = x * 0.5; // max 0.5 m/s
+		tw.linear.y = y * 0.5; // max 0.5 m/s
+		// tw.angular.z = 
+		pub_->publish(tw);
 
 		// Publish a pepper_head value derived from joystick axes
 		std_msgs::msg::Float64 ph;
