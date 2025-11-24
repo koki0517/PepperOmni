@@ -14,6 +14,7 @@
   <build_depend>std_msgs</build_depend>
   <build_depend>pepper_msgs</build_depend>
   <build_depend>uec_utils</build_depend>
+  <build_depend>uec_msgs</build_depend>
   <build_depend>sensor_msgs</build_depend>
   <exec_depend>rclcpp</exec_depend>
   <exec_depend>dynamixel_sdk</exec_depend>
@@ -21,6 +22,7 @@
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>pepper_msgs</exec_depend>
   <exec_depend>uec_utils</exec_depend>
+  <exec_depend>uec_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>

@@ -38,16 +38,12 @@ def generate_launch_description():
 		package="uec_core",
 		executable="usb2canfd",
 		output="screen",
-		parameters=[
-			{"last_id1": 2},
-			{"last_id2": 4},
-		]
+		parameters=[]
   )
 
   pepper_omni = Node(
     package="pepper_omni",
     executable="dxl_omni",
-    name="dxl_omni",
     output="screen",
     parameters=[
       {"id_list": [1,2,3,4]},
@@ -58,20 +54,18 @@ def generate_launch_description():
   joy_pub = Node(
     package="pepper_omni",
     executable="joy_pub",
-    name="joy_pub",
     output="screen",
   )
 
   joy_linux = Node(
     package="joy",
     executable="joy_node",
-    name="joy",
     output="screen",
     parameters=[],
   )
 
   return LaunchDescription([
-    # usb2canfd,
+    usb2canfd,
     pepper_omni,
     joy_pub,
     joy_linux,

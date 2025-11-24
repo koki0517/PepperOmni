@@ -36,8 +36,8 @@ extern int dxl_comm_result;
 class DxlOmniNode : public rclcpp::Node
 {
 public:
-  DxlOmniNode()
-  : Node("dxl_omni")
+  // MARK: constructor
+  DxlOmniNode(): Node("dxl_omni")
   {
     declare_parameter("id list", std::vector<int64_t>{1, 2, 3, 4});
     id_list_ = get_parameter("id list").as_integer_array();
@@ -114,8 +114,6 @@ private:
         data[i] = v *(1.0/0.05);
 
         send_velocity_command(static_cast<uint8_t>(i + 1), data[i]);
-        RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-          "x = %.3f, y = %.3f => wheel %d speed = %.3f", msg->linear.x, msg->linear.y, i + 1, data[i]);
     }
   }
 
@@ -125,9 +123,10 @@ private:
     int32_t pos = PEPPER_OMNI::read_present_position(id);
     if (pos == INT32_MIN) {
       RCLCPP_WARN(this->get_logger(), "read_servo_position: failed to read ID=%d", id);
-    } else {
-      RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "read_servo_position: ID=%d pos=%d", id, pos);
-    }
+    } 
+    // else {
+    //   RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "read_servo_position: ID=%d pos=%d", id, pos);
+    // }
     return pos;
   }
 
@@ -191,7 +190,7 @@ private:
   {
     // store and log the received value
     latest_pepper_head_ = msg->data;
-    RCLCPP_INFO(this->get_logger(), "pepper_head received: %.3f", latest_pepper_head_);
+    // RCLCPP_INFO(this->get_logger(), "pepper_head received: %.3f", latest_pepper_head_);
     // Only send if value changed significantly to avoid jitter
     const double eps = 1e-3;
     if (std::abs(latest_pepper_head_ - last_sent_pepper_head_) > eps) {

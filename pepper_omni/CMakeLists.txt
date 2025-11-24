@@ -13,6 +13,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(uec_utils REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(uec_msgs REQUIRED)
 find_package(pepper_msgs REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
@@ -31,7 +32,7 @@ target_include_directories(joy_pub PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 target_compile_features(joy_pub PUBLIC c_std_99 cxx_std_17)
-ament_target_dependencies(joy_pub rclcpp geometry_msgs sensor_msgs std_msgs uec_utils)
+ament_target_dependencies(joy_pub rclcpp geometry_msgs sensor_msgs std_msgs uec_utils uec_msgs pepper_msgs)
 
 install(TARGETS joy_pub
   DESTINATION lib/${PROJECT_NAME})
